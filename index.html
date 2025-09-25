@@ -35,6 +35,7 @@
             <option value="LuckiestGuy-Regular.ttf">Luckiest Guy</option>
             <option value="Peace Sans.otf">Peace Sans</option>
             <option value="XRBNIeS7Tvw69jxW7GvB9iBDHBqWo5.ttf">11</option>
+            <option value="tsLmbIhqe6840ohWr468AFk0BlqGPT.ttf">11</option>
         </select>
     </div>
 
@@ -99,14 +100,12 @@
         <input type="range" id="letter_spacing" min="-200" max="200" value="0">
     </div>
 
-
     <canvas id="canvas" width="800" height="400" style="border:1px solid #ccc"></canvas>
 
     <script src="./path-wrap.js"></script>
     <script>
         const canvas = new fabric.Canvas("canvas");
 
-        let loadedFont = null;
         const textInput = document.querySelector('#text_input');
         const addTextBtn = document.querySelector('#add_text_btn');
         const fontSelect = document.querySelector('#font_select');
@@ -123,64 +122,97 @@
         const rotationInput = document.querySelector('#rotation');
         const letterSpacingInput = document.querySelector('#letter_spacing');
 
-        // Load font dynamically
-        function loadFont(fontFile) {
-            opentype.load("./" + fontFile, function (err, font) {
-                if (err) {
-                    alert("Font load error: " + err);
-                } else {
-                    loadedFont = font;
-                    // update active object if exists
-                    const obj = canvas.getActiveObject();
-                    if (obj && textInput.value.trim()) {
-                        const size = parseInt(fontSizeInput.value, 10);
-                        const spacing = parseInt(letterSpacingInput.value, 10);
-                        const pathObj = loadedFont.getPath(textInput.value.trim(), 0, 100, size, { letterSpacing: spacing });
-                        obj.customBaseD = pathObj.toPathData();
-                        changePath();
-                    }
-                }
+        // ✅ Fix: live text editing
+        textInput.addEventListener("input", updateActiveText);
+
+        // Generate SVG path from text using opentype.js
+        function generateSVGText({
+            text,
+            alignment = "center",
+            fontSize = 50,
+            fontStyle,
+            letterSpacing = 2,
+            lineHeight = 1.2
+        }) {
+            return new Promise((resolve, reject) => {
+                opentype.load(fontStyle, function (err, font) {
+                    if (err) return reject(err);
+
+                    const boxWidth = 5000;
+                    const lineGap = fontSize * lineHeight;
+                    let yCursor = 0;
+                    const combinedCommands = [];
+
+                    const lines = text.split('\n');
+
+                    lines.forEach(line => {
+                        let xPosition = 0;
+                        const lineCommands = [];
+                        const glyphs = [];
+
+                        for (const char of line) {
+                            const glyph = font.charToGlyph(char);
+                            glyphs.push(glyph);
+                            xPosition += glyph.advanceWidth * (fontSize / font.unitsPerEm) + letterSpacing;
+                        }
+
+                        const lineWidth = xPosition - letterSpacing;
+                        let lineXOffset = 0;
+                        if (alignment === 'center') {
+                            lineXOffset = (boxWidth - lineWidth) / 2;
+                        } else if (alignment === 'right') {
+                            lineXOffset = boxWidth - lineWidth - 10;
+                        } else {
+                            lineXOffset = 10;
+                        }
+
+                        let x = lineXOffset;
+
+                        for (const glyph of glyphs) {
+                            const path = glyph.getPath(x, yCursor, fontSize);
+                            lineCommands.push(...path.commands);
+                            x += glyph.advanceWidth * (fontSize / font.unitsPerEm) + letterSpacing;
+                        }
+
+                        combinedCommands.push(...lineCommands);
+                        yCursor += lineGap;
+                    });
+
+                    const extraPadding = fontSize * 3;
+                    const boxHeight = yCursor + extraPadding;
+
+                    const finalPath = new opentype.Path();
+                    finalPath.commands = combinedCommands;
+
+                    const { x1, y1, x2, y2 } = finalPath.getBoundingBox();
+                    const textWidth = x2 - x1;
+                    const textHeight = y2 - y1;
+
+                    const xOffset = (boxWidth - textWidth) / 2 - x1;
+                    const yOffset = (boxHeight - textHeight) / 2 - y1;
+
+                    finalPath.commands.forEach(cmd => {
+                        if (cmd.x !== undefined) cmd.x += xOffset;
+                        if (cmd.x1 !== undefined) cmd.x1 += xOffset;
+                        if (cmd.x2 !== undefined) cmd.x2 += xOffset;
+
+                        if (cmd.y !== undefined) cmd.y += yOffset;
+                        if (cmd.y1 !== undefined) cmd.y1 += yOffset;
+                        if (cmd.y2 !== undefined) cmd.y2 += yOffset;
+                    });
+
+                    const svgPathData = finalPath.toPathData();
+                    resolve({
+                        svgPath: svgPathData,
+                        svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${boxWidth} ${boxHeight}">
+                                <path d="${svgPathData}" />
+                              </svg>`
+                    });
+                });
             });
         }
 
-        // load default
-        loadFont(fontSelect.value);
-
-        // when font changes
-        fontSelect.addEventListener("change", (e) => {
-            loadFont(e.target.value);
-        });
-
-        // Add text as path
-        addTextBtn.addEventListener("click", () => {
-            const textVal = textInput.value.trim();
-            if (!textVal) return alert("Please enter some text!");
-            if (!loadedFont) return alert("Font not loaded yet!");
-
-            const size = parseInt(fontSizeInput.value, 10);
-            const spacing = parseInt(letterSpacingInput.value, 10);
-            const pathObj = loadedFont.getPath(textVal, 0, 100, size, { letterSpacing: spacing });
-            const d = pathObj.toPathData();
-
-            const textPath = new fabric.Path(d, {
-                left: 300,
-                top: 200,
-                fill: fillColor.value,
-                stroke: strokeColor.value,
-                strokeWidth: parseInt(strokeWidth.value, 10),
-                originX: "center",
-                originY: "center",
-                selectable: true,
-                customBaseD: d,
-                customFontSize: size,
-                customLetterSpacing: spacing
-            });
-
-            canvas.add(textPath).setActiveObject(textPath);
-            canvas.requestRenderAll();
-        });
-
-        // helper: get path bounds
+        // Helper: get path bounds
         function getPathBounds(path) {
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
             path.forEach(cmd => {
@@ -196,7 +228,7 @@
             return { left: minX, top: minY, width: maxX - minX, height: maxY - minY };
         }
 
-        // warp active object
+        // Warp active object
         function changePath() {
             const activeObj = canvas.getActiveObject();
             if (!activeObj || !activeObj.customBaseD) return;
@@ -232,13 +264,86 @@
             canvas.requestRenderAll();
         }
 
-        // controls events
+        // Add text
+        addTextBtn.addEventListener("click", () => {
+            const textVal = textInput.value.trim();
+            if (!textVal) return alert("Please enter some text!");
+
+            generateSVGText({
+                text: textVal,
+                alignment: "center",
+                fontSize: parseInt(fontSizeInput.value, 10),
+                fontStyle: "./" + fontSelect.value,
+                letterSpacing: parseInt(letterSpacingInput.value, 10),
+                lineHeight: 1.2
+            }).then(svgContent => {
+                const textPath = new fabric.Path(svgContent.svgPath, {
+                    left: 300,
+                    top: 200,
+                    fill: fillColor.value,
+                    stroke: strokeColor.value,
+                    strokeWidth: parseInt(strokeWidth.value, 10),
+                    originX: "center",
+                    originY: "center",
+                    selectable: true,
+                    customBaseD: svgContent.svgPath,
+                    customFontSize: parseInt(fontSizeInput.value, 10),
+                    customLetterSpacing: parseInt(letterSpacingInput.value, 10)
+                });
+
+                canvas.add(textPath).setActiveObject(textPath);
+                canvas.requestRenderAll();
+            });
+        });
+
+        // Update active text
+        function updateActiveText() {
+            const obj = canvas.getActiveObject();
+            if (!obj) return;
+
+            const textVal = textInput.value.trim();
+            if (!textVal) return;
+
+            generateSVGText({
+                text: textVal,
+                alignment: "center",
+                fontSize: parseInt(fontSizeInput.value, 10),
+                fontStyle: "./" + fontSelect.value,
+                letterSpacing: parseInt(letterSpacingInput.value, 10),
+                lineHeight: 1.2
+            }).then(svgContent => {
+                // new path from generated SVG
+                const newPath = new fabric.Path(svgContent.svgPath);
+
+                obj.customBaseD = svgContent.svgPath; // store base path
+
+                // calculate bounds
+                const bounds = getPathBounds(newPath.path);
+
+                obj.set({
+                    path: newPath.path,
+                    width: bounds.width,
+                    height: bounds.height,
+                    pathOffset: {
+                        x: bounds.left + bounds.width / 2,
+                        y: bounds.top + bounds.height / 2
+                    }
+                });
+
+                changePath(); // re-apply warp if selected
+                obj.setCoords();
+                canvas.requestRenderAll();
+            });
+        }
+
+
+        // Controls events
         bend_control.addEventListener('input', changePath);
         horizontal_control.addEventListener('input', changePath);
         vertical_control.addEventListener('input', changePath);
         arc_type.addEventListener('change', changePath);
 
-        // reset buttons
+        // Reset buttons
         document.addEventListener('click', function (e) {
             if (e.target instanceof HTMLButtonElement && e.target.value) {
                 window[e.target.value].value = 0;
@@ -267,29 +372,9 @@
             canvas.requestRenderAll();
         });
 
-        fontSizeInput.addEventListener("input", () => {
-            const obj = canvas.getActiveObject();
-            if (!obj || !loadedFont) return;
-            const newText = textInput.value.trim();
-            if (!newText) return;
-            const size = parseInt(fontSizeInput.value, 10);
-            const spacing = parseInt(letterSpacingInput.value, 10);
-            const pathObj = loadedFont.getPath(newText, 0, 100, size, { letterSpacing: spacing });
-            obj.customBaseD = pathObj.toPathData();
-            changePath();
-        });
-
-        letterSpacingInput.addEventListener("input", () => {
-            const obj = canvas.getActiveObject();
-            if (!obj || !loadedFont) return;
-            const newText = textInput.value.trim();
-            if (!newText) return;
-            const size = parseInt(fontSizeInput.value, 10);
-            const spacing = parseInt(letterSpacingInput.value, 10);
-            const pathObj = loadedFont.getPath(newText, 0, 100, size, { letterSpacing: spacing });
-            obj.customBaseD = pathObj.toPathData();
-            changePath();
-        });
+        fontSizeInput.addEventListener("input", updateActiveText);
+        letterSpacingInput.addEventListener("input", updateActiveText);
+        fontSelect.addEventListener("change", updateActiveText);
 
         rotationInput.addEventListener("input", () => {
             const obj = canvas.getActiveObject();
