@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Fabric.js Text Warp with Multiple Fonts</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/opentype.js/1.3.4/opentype.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        #controls {
+            margin-bottom: 10px;
+        }
+
+        #text_controls {
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="text_controls">
+        <input type="text" id="text_input" placeholder="Enter text" />
+        <button id="add_text_btn">Add Text</button>
+    </div>
+
+    <div>
+        <label for="font_select">Font</label>
+        <select id="font_select">
+            <option value="LoveDays-2v7Oe.ttf">Love Days</option>
+            <option value="Notable-Regular.ttf">Notable</option>
+            <option value="LuckiestGuy-Regular.ttf">Luckiest Guy</option>
+            <option value="Peace Sans.otf">Peace Sans</option>
+            <option value="XRBNIeS7Tvw69jxW7GvB9iBDHBqWo5.ttf">11</option>
+        </select>
+    </div>
+
+    <div id="controls">
+        <select id="arc_type">
+            <option value="">Select</option>
+            <option value="WARP_ARC">Arc</option>
+            <option value="WARP_ARC_LOWER">Arc Lower</option>
+            <option value="WARP_ARC_UPPER">Arc Upper</option>
+            <option value="WARP_ARCH">Arch</option>
+            <option value="WARP_BULGE">Bulge</option>
+            <option value="WARP_FLAG">Flag</option>
+            <option value="WARP_FISH">Fish</option>
+            <option value="WARP_RISE">Rise</option>
+            <option value="WARP_INFLATE">Inflate</option>
+            <option value="WARP_SQUEEZE">Squeeze</option>
+            <option value="WARP_WAVE_LOWER">Wave Lower</option>
+            <option value="WARP_WAVE_UPPER">Wave Upper</option>
+            <option value="WARP_CIRCLE">Circle</option>
+        </select>
+
+        <div>
+            <label for="bend_control">Bend</label>
+            <input type="range" min="-100" value="0" max="100" id="bend_control">
+            <button value="bend_control">Reset</button>
+        </div>
+        <div>
+            <label for="horizontal_control">Horizontal Distort</label>
+            <input type="range" min="-100" value="0" max="100" id="horizontal_control">
+            <button value="horizontal_control">Reset</button>
+        </div>
+        <div>
+            <label for="vertical_control">Vertical Distort</label>
+            <input type="range" min="-100" value="0" max="100" id="vertical_control">
+            <button value="vertical_control">Reset</button>
+        </div>
+    </div>
+    <div>
+        <label for="fill_color">Fill</label>
+        <input type="color" id="fill_color" value="#000000">
+    </div>
+
+    <div>
+        <label for="stroke_color">Outline</label>
+        <input type="color" id="stroke_color" value="#ff0000">
+        <label for="stroke_width">Width</label>
+        <input type="range" id="stroke_width" min="0" max="10" value="0">
+    </div>
+
+    <div>
+        <label for="font_size">Font Size</label>
+        <input type="number" id="font_size" value="72" min="10" max="200">
+    </div>
+
+    <div>
+        <label for="rotation">Rotate</label>
+        <input type="range" id="rotation" min="0" max="360" value="0">
+    </div>
+
+    <div>
+        <label for="letter_spacing">Letter Spacing</label>
+        <input type="range" id="letter_spacing" min="-200" max="200" value="0">
+    </div>
+
+
+    <canvas id="canvas" width="800" height="400" style="border:1px solid #ccc"></canvas>
+
+    <script src="./path-wrap.js"></script>
+    <script>
+        const canvas = new fabric.Canvas("canvas");
+
+        let loadedFont = null;
+        const textInput = document.querySelector('#text_input');
+        const addTextBtn = document.querySelector('#add_text_btn');
+        const fontSelect = document.querySelector('#font_select');
+
+        const bend_control = document.querySelector('#bend_control');
+        const horizontal_control = document.querySelector('#horizontal_control');
+        const vertical_control = document.querySelector('#vertical_control');
+        const arc_type = document.querySelector('#arc_type');
+
+        const fillColor = document.querySelector('#fill_color');
+        const strokeColor = document.querySelector('#stroke_color');
+        const strokeWidth = document.querySelector('#stroke_width');
+        const fontSizeInput = document.querySelector('#font_size');
+        const rotationInput = document.querySelector('#rotation');
+        const letterSpacingInput = document.querySelector('#letter_spacing');
+
+        // Load font dynamically
+        function loadFont(fontFile) {
+            opentype.load("./" + fontFile, function (err, font) {
+                if (err) {
+                    alert("Font load error: " + err);
+                } else {
+                    loadedFont = font;
+                    // update active object if exists
+                    const obj = canvas.getActiveObject();
+                    if (obj && textInput.value.trim()) {
+                        const size = parseInt(fontSizeInput.value, 10);
+                        const spacing = parseInt(letterSpacingInput.value, 10);
+                        const pathObj = loadedFont.getPath(textInput.value.trim(), 0, 100, size, { letterSpacing: spacing });
+                        obj.customBaseD = pathObj.toPathData();
+                        changePath();
+                    }
+                }
+            });
+        }
+
+        // load default
+        loadFont(fontSelect.value);
+
+        // when font changes
+        fontSelect.addEventListener("change", (e) => {
+            loadFont(e.target.value);
+        });
+
+        // Add text as path
+        addTextBtn.addEventListener("click", () => {
+            const textVal = textInput.value.trim();
+            if (!textVal) return alert("Please enter some text!");
+            if (!loadedFont) return alert("Font not loaded yet!");
+
+            const size = parseInt(fontSizeInput.value, 10);
+            const spacing = parseInt(letterSpacingInput.value, 10);
+            const pathObj = loadedFont.getPath(textVal, 0, 100, size, { letterSpacing: spacing });
+            const d = pathObj.toPathData();
+
+            const textPath = new fabric.Path(d, {
+                left: 300,
+                top: 200,
+                fill: fillColor.value,
+                stroke: strokeColor.value,
+                strokeWidth: parseInt(strokeWidth.value, 10),
+                originX: "center",
+                originY: "center",
+                selectable: true,
+                customBaseD: d,
+                customFontSize: size,
+                customLetterSpacing: spacing
+            });
+
+            canvas.add(textPath).setActiveObject(textPath);
+            canvas.requestRenderAll();
+        });
+
+        // helper: get path bounds
+        function getPathBounds(path) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            path.forEach(cmd => {
+                let pts = cmd.slice(1);
+                for (let i = 0; i < pts.length; i += 2) {
+                    const x = pts[i], y = pts[i + 1];
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            });
+            return { left: minX, top: minY, width: maxX - minX, height: maxY - minY };
+        }
+
+        // warp active object
+        function changePath() {
+            const activeObj = canvas.getActiveObject();
+            if (!activeObj || !activeObj.customBaseD) return;
+
+            const p = new Path(activeObj.customBaseD);
+            p.warp({
+                type: arc_type.value,
+                bend: (bend_control.value / 100) || 0,
+                distortV: (horizontal_control.value / 100) || 0,
+                distortH: (vertical_control.value / 100) || 0,
+            });
+
+            const newPath = new fabric.Path(`<path>${p.output()}</path>`);
+            const bounds = getPathBounds(newPath.path);
+
+            activeObj.set({
+                path: newPath.path,
+                width: bounds.width,
+                height: bounds.height,
+                pathOffset: {
+                    x: bounds.left + bounds.width / 2,
+                    y: bounds.top + bounds.height / 2
+                },
+                customWarp: {
+                    type: arc_type.value,
+                    bend: bend_control.value,
+                    distortH: horizontal_control.value,
+                    distortV: vertical_control.value
+                }
+            });
+
+            activeObj.setCoords();
+            canvas.requestRenderAll();
+        }
+
+        // controls events
+        bend_control.addEventListener('input', changePath);
+        horizontal_control.addEventListener('input', changePath);
+        vertical_control.addEventListener('input', changePath);
+        arc_type.addEventListener('change', changePath);
+
+        // reset buttons
+        document.addEventListener('click', function (e) {
+            if (e.target instanceof HTMLButtonElement && e.target.value) {
+                window[e.target.value].value = 0;
+                changePath();
+            }
+        });
+
+        fillColor.addEventListener("input", () => {
+            const obj = canvas.getActiveObject();
+            if (!obj) return;
+            obj.set("fill", fillColor.value);
+            canvas.requestRenderAll();
+        });
+
+        strokeColor.addEventListener("input", () => {
+            const obj = canvas.getActiveObject();
+            if (!obj) return;
+            obj.set("stroke", strokeColor.value);
+            canvas.requestRenderAll();
+        });
+
+        strokeWidth.addEventListener("input", () => {
+            const obj = canvas.getActiveObject();
+            if (!obj) return;
+            obj.set("strokeWidth", parseInt(strokeWidth.value, 10));
+            canvas.requestRenderAll();
+        });
+
+        fontSizeInput.addEventListener("input", () => {
+            const obj = canvas.getActiveObject();
+            if (!obj || !loadedFont) return;
+            const newText = textInput.value.trim();
+            if (!newText) return;
+            const size = parseInt(fontSizeInput.value, 10);
+            const spacing = parseInt(letterSpacingInput.value, 10);
+            const pathObj = loadedFont.getPath(newText, 0, 100, size, { letterSpacing: spacing });
+            obj.customBaseD = pathObj.toPathData();
+            changePath();
+        });
+
+        letterSpacingInput.addEventListener("input", () => {
+            const obj = canvas.getActiveObject();
+            if (!obj || !loadedFont) return;
+            const newText = textInput.value.trim();
+            if (!newText) return;
+            const size = parseInt(fontSizeInput.value, 10);
+            const spacing = parseInt(letterSpacingInput.value, 10);
+            const pathObj = loadedFont.getPath(newText, 0, 100, size, { letterSpacing: spacing });
+            obj.customBaseD = pathObj.toPathData();
+            changePath();
+        });
+
+        rotationInput.addEventListener("input", () => {
+            const obj = canvas.getActiveObject();
+            if (!obj) return;
+            obj.set("angle", parseInt(rotationInput.value, 10));
+            obj.setCoords();
+            canvas.requestRenderAll();
+        });
+    </script>
+</body>
+
+</html>

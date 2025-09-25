@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Fabric.js Text Warp</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/opentype.js/1.3.4/opentype.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        #controls {
+            margin-bottom: 10px;
+        }
+
+        #text_controls {
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="text_controls">
+        <input type="text" id="text_input" placeholder="Enter text" />
+        <button id="add_text_btn">Add Text</button>
+    </div>
+
+    <div id="controls">
+        <select id="arc_type">
+            <option value="">Select</option>
+            <option value="WARP_ARC">Arc</option>
+            <option value="WARP_ARC_LOWER">Arc Lower</option>
+            <option value="WARP_ARC_UPPER">Arc Upper</option>
+            <option value="WARP_ARCH">Arch</option>
+            <option value="WARP_BULGE">Bulge</option>
+            <option value="WARP_FLAG">Flag</option>
+            <option value="WARP_FISH">Fish</option>
+            <option value="WARP_RISE">Rise</option>
+            <option value="WARP_INFLATE">Inflate</option>
+            <option value="WARP_SQUEEZE">Squeeze</option>
+            <option value="WARP_WAVE_LOWER">Wave Lower</option>
+            <option value="WARP_WAVE_UPPER">Wave Upper</option>
+            <option value="WARP_CIRCLE">Circle</option>
+        </select>
+
+        <div>
+            <label for="bend_control">Bend</label>
+            <input type="range" min="-100" value="0" max="100" id="bend_control">
+            <button value="bend_control">Reset</button>
+        </div>
+        <div>
+            <label for="horizontal_control">Horizontal Distort</label>
+            <input type="range" min="-100" value="0" max="100" id="horizontal_control">
+            <button value="horizontal_control">Reset</button>
+        </div>
+        <div>
+            <label for="vertical_control">Vertical Distort</label>
+            <input type="range" min="-100" value="0" max="100" id="vertical_control">
+            <button value="vertical_control">Reset</button>
+        </div>
+    </div>
+
+    <canvas id="canvas" width="800" height="400" style="border:1px solid #ccc"></canvas>
+
+    <script src="./path-wrap.js"></script>
+    <script>
+        const canvas = new fabric.Canvas("canvas");
+
+        let base_d = null;
+        let loadedFont = null;
+
+        const bend_control = document.querySelector('#bend_control');
+        const horizontal_control = document.querySelector('#horizontal_control');
+        const vertical_control = document.querySelector('#vertical_control');
+        const arc_type = document.querySelector('#arc_type');
+        const textInput = document.querySelector('#text_input');
+        const addTextBtn = document.querySelector('#add_text_btn');
+
+        // Load font
+        opentype.load("./LoveDays-2v7Oe.ttf", function (err, font) {
+            if (err) {
+                alert("Font load error: " + err);
+            } else {
+                loadedFont = font;
+            }
+        });
+
+        // Add text as path
+        addTextBtn.addEventListener("click", () => {
+            const textVal = textInput.value.trim();
+            if (!textVal) return alert("Please enter some text!");
+            if (!loadedFont) return alert("Font not loaded yet!");
+
+            const pathObj = loadedFont.getPath(textVal, 0, 100, 72);
+            const d = pathObj.toPathData();
+
+            // create new path (independent for each text)
+            const textPath = new fabric.Path(d, {
+                left: 300,
+                top: 200,
+                fill: "black",
+                originX: "center",
+                originY: "center",
+                selectable: true,
+                customBaseD: d   // store base_d inside object
+            });
+
+            canvas.add(textPath).setActiveObject(textPath);
+            canvas.requestRenderAll();
+        });
+
+        // ✅ helper: get exact path bounds
+        function getPathBounds(path) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            path.forEach(cmd => {
+                let pts = cmd.slice(1);
+                for (let i = 0; i < pts.length; i += 2) {
+                    const x = pts[i], y = pts[i + 1];
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            });
+            return {
+                left: minX,
+                top: minY,
+                width: maxX - minX,
+                height: maxY - minY
+            };
+        }
+
+        textInput.addEventListener("input", () => {
+            const obj = canvas.getActiveObject();
+            if (!obj || !loadedFont) return;
+
+            const newText = textInput.value.trim();
+            if (!newText) return;
+
+            const pathObj = loadedFont.getPath(newText, 0, 100, 72);
+            const d = pathObj.toPathData();
+
+            // Save new base path
+            obj.customBaseD = d;
+
+            // Reapply warp with current sliders
+            changePath();
+        });
+
+
+
+        canvas.on("selection:created", syncControls);
+        canvas.on("selection:updated", syncControls);
+
+        function syncControls() {
+            const obj = canvas.getActiveObject();
+            if (obj && obj.customWarp) {
+                arc_type.value = obj.customWarp.type || "";
+                bend_control.value = obj.customWarp.bend || 0;
+                horizontal_control.value = obj.customWarp.distortH || 0;
+                vertical_control.value = obj.customWarp.distortV || 0;
+            }
+        }
+
+
+
+        // ✅ warp active object only
+        function changePath() {
+            const activeObj = canvas.getActiveObject();
+            if (!activeObj || !activeObj.customBaseD) return;
+
+            const p = new Path(activeObj.customBaseD);
+            p.warp({
+                type: arc_type.value,
+                bend: (bend_control.value / 100) || 0,
+                distortV: (horizontal_control.value / 100) || 0,
+                distortH: (vertical_control.value / 100) || 0,
+            });
+
+            // New warped path
+            const newPath = new fabric.Path(`<path>${p.output()}</path>`);
+
+            // Calculate bounds
+            const bounds = getPathBounds(newPath.path);
+
+            activeObj.set({
+                path: newPath.path,
+                width: bounds.width,
+                height: bounds.height,
+                pathOffset: {
+                    x: bounds.left + bounds.width / 2,
+                    y: bounds.top + bounds.height / 2
+                },
+                customWarp: {
+                    type: arc_type.value,
+                    bend: bend_control.value,
+                    distortH: horizontal_control.value,
+                    distortV: vertical_control.value
+                }
+            });
+
+            activeObj.setCoords();
+            canvas.requestRenderAll();
+        }
+
+
+        // Controls events
+        bend_control.addEventListener('input', changePath);
+        horizontal_control.addEventListener('input', changePath);
+        vertical_control.addEventListener('input', changePath);
+        arc_type.addEventListener('change', changePath);
+
+        // Reset buttons
+        document.addEventListener('click', function (e) {
+            if (e.target instanceof HTMLButtonElement && e.target.value) {
+                window[e.target.value].value = 0;
+                changePath();
+            }
+        });
+    </script>
+
+</body>
+
+</html>
